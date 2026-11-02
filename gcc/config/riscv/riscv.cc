@@ -6997,8 +6997,6 @@ riscv_asm_output_opcode (FILE *asm_out_file, const char *p)
    '~'	Print w if TARGET_64BIT is true; otherwise not print anything.
    'N'  Print register encoding as integer (0-31).
 
-   'x'  Print Tenstorrent
-
    Note please keep this list and the list in riscv.md in sync.  */
 
 static void
@@ -7308,25 +7306,6 @@ riscv_print_operand (FILE *file, rtx op, int letter)
 	gcc_unreachable();
       break;
 
-    case 'x':
-      if (code == UNSPEC)
-	{
-	  auto subcode = XINT (op, 1);
-	  if (subcode == UNSPEC_SFPCSTLREG)
-	    {
-	      rtx cst = XVECEXP (op, 0, 0);
-	      fprintf(file, "L%d", int (INTVAL (cst)));
-	      break;
-	    }
-	  if (subcode == UNSPEC_SFPNOVAL)
-	    {
-	      fprintf(file, "-");
-	      break;
-	    }
-	}
-      letter = 0;
-      //FALLTHROUGH
-
     default:
       switch (code)
 	{
@@ -7360,6 +7339,24 @@ riscv_print_operand (FILE *file, rtx op, int letter)
 	    asm_fprintf (file, "%s", fli_value_print[fli_index]);
 	    break;
 	  }
+
+	case UNSPEC:
+	  // Tenstorrent
+	  {
+	    auto subcode = XINT (op, 1);
+	    if (subcode == UNSPEC_SFPCSTLREG)
+	      {
+		rtx cst = XVECEXP (op, 0, 0);
+		fprintf(file, "L%d", int (INTVAL (cst)));
+		break;
+	      }
+	    if (subcode == UNSPEC_SFPNOVAL)
+	      {
+		fprintf(file, "-");
+		break;
+	      }
+	  }
+	  //FALLTHROUGH
 
 	default:
 	  if (letter == 'z' && op == CONST0_RTX (GET_MODE (op)))
