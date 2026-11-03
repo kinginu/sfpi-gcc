@@ -70,6 +70,7 @@ public:
     EMPTY = 1 << EMPTY_SHIFT, // (Usually) expands to no instruction
   };
   static_assert (HWM <= 16);
+  constexpr static unsigned imm_arg_hwm = 2;
 
 public:
   class op_t
@@ -263,17 +264,14 @@ public:
   bool has_iptr () const { return flags & HAS_IPTR; }
   bool has_imms () const { return bool (num_imms ()); }
   int num_imms () const { return (flags >> IMM_NUM_SHIFT) & ((1 << IMM_NUM_BITS) - 1); }
-  int imm_arg () const { return ops[0].argno (); }
+  int imm_arg (unsigned ix = 0) const { return ops[0].argno () + ix; }
   int var_arg () const { return imm_arg () + num_imms (); }
   int id_arg () const { return var_arg () + 1; }
 
   bool has_src () const { return src_pos >= 0; }
-  int src_arg () const { return src_pos; }
+  int src_arg (unsigned ix = 0) const { return src_pos + ix; }
 
-  unsigned imm_bits () const {
-    return ops[0].bits () + bool (ops[0].bias ());
-  }
-  unsigned imm_encode () const { return ops[0].encode (); }
+  op_t imm_op (unsigned ix) const { return ops[ix]; }
 
 public:
   bool sets_cc (unsigned mod) const {

@@ -140,6 +140,7 @@ rvtt_insn_data::init ()
 	{
 	  ops.set_argno (ix, argno);
 	  gcc_checking_assert (TREE_CODE (TREE_VALUE (arg_types)) == INTEGER_TYPE);
+	  gcc_checking_assert (!is_expanded ());
 	  arg_types = TREE_CHAIN (arg_types);
 	  argno++;
 	  ix++;
@@ -152,6 +153,8 @@ rvtt_insn_data::init ()
 	      num_imms = 1;
 	      flags = flags_t (flags | (1 << IMM_NUM_SHIFT));
 	    }
+	  else
+	    gcc_checking_assert (!is_expanded ());
 
 	  while (num_imms--)
 	    {

@@ -150,13 +150,15 @@ emit_replacement (gimple_stmt_iterator &gsi, const rvtt_insn_data *insnd, gcall 
 	      || (1u << TREE_INT_CST_LOW (mod)) & new_insnd->mod_info ().mod ());
   gimple *stmt = gimple_build_call (new_insnd->decl, new_insnd->num_args ());
   gimple_set_location (stmt, gimple_location (call));
-  gcc_checking_assert (new_insnd->num_srcs () == insnd->num_srcs () + 1);
+  gcc_checking_assert (new_insnd->num_srcs () == insnd->num_srcs () + 1
+		       && insnd->num_imms () == 1
+		       && !new_insnd->has_imms ());
 
-  gimple_call_set_arg (stmt, new_insnd->src_arg () + insnd->num_srcs (), imm);
+  gimple_call_set_arg (stmt, new_insnd->src_arg (insnd->num_srcs ()), imm);
   gimple_call_set_arg (stmt, new_insnd->mod_arg (), mod);
   for (unsigned ix = insnd->num_srcs (); ix--; )
-    gimple_call_set_arg (stmt, new_insnd->src_arg () + ix,
-			 gimple_call_arg (call, insnd->src_arg () + ix));
+    gimple_call_set_arg (stmt, new_insnd->src_arg (ix),
+			 gimple_call_arg (call, insnd->src_arg (ix)));
   for (unsigned ix = new_insnd->mod_arg () + 1, jx = insnd->id_arg () + 1,
 	 limit = new_insnd->num_args (); ix != limit; ix++, jx++)
     gimple_call_set_arg (stmt, ix, gimple_call_arg (call, jx));
@@ -226,25 +228,39 @@ immvar_gather (const rvtt_insn_data *insnd,
     return false;
 
   unsigned num_imms = insnd->num_imms () ? insnd->num_imms () : 1;
-  unsigned non_const_mask = 0;
+  unsigned const_mask = 0;
   for (unsigned ix = num_imms; ix--; )
     {
-      tree imm = gimple_call_arg (call, insnd->imm_arg () + ix);
-      if (TREE_CODE (imm) != INTEGER_CST)
-	{
-	  non_const_mask |= 1 << ix;
-	  if (loads && integer_zerop (gimple_call_arg (call, 0)))
-	    error_at (gimple_location (call), "%qE immediate operand %d is not known at compile time",
-		      gimple_call_fndecl (call), 1 + insnd->imm_arg () + ix);
-	}
+      tree imm = gimple_call_arg (call, insnd->imm_arg (ix));
+      if (TREE_CODE (imm) == INTEGER_CST)
+	  const_mask |= 1 << ix;
+      else if (loads && integer_zerop (gimple_call_arg (call, 0)))
+	error_at (gimple_location (call), "%qE immediate operand %d is not known at compile time",
+		  gimple_call_fndecl (call), 1 + insnd->imm_arg (ix));
     }
 
-  if (non_const_mask != 0)
+  if (const_mask != (1u << num_imms) - 1)
     {
-      if (non_const_mask != (1 << num_imms) - 1)
+      // Not everything is const
+      if (const_mask != 0)
 	{
-	  // FIXME: Check if some have become known
-	  gcc_unreachable ();
+	  // Something is const
+	  unsigned was_const_mask
+	    = rvtt_synth::extract_const_mask (gimple_call_arg (call, insnd->id_arg ()));
+	  if (was_const_mask != const_mask)
+	    {
+	      // Something's become const, find and anull its dynamic input
+	      tree var = gimple_call_arg (call, insnd->var_arg ());
+	      auto sum_stmt = SSA_NAME_DEF_STMT (var);
+	      gcc_assert (rvtt_get_insn_data (sum_stmt));
+	      for (unsigned ix = num_imms; ix--;)
+		if ((1 << ix) & (const_mask ^ was_const_mask))
+		  gimple_call_set_arg (sum_stmt, ix, integer_zero_node);
+	      update_stmt (sum_stmt);
+	      auto id_arg = gimple_call_arg (call, insnd->id_arg ());
+	      gimple_call_set_arg (call, insnd->id_arg (),
+				   rvtt_synth::encode_id (id_arg, const_mask));
+	    }
 	}
       return false;
     }

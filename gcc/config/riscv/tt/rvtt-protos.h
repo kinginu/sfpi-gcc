@@ -84,6 +84,30 @@ class rvtt_synth
     encode |= shift << (ID_BITS + REG_SHIFT_BITS);
     return *this;
   }
+
+  // Extractors
+#if defined (TREE_INT_CST_LOW) // Ugh
+  static tree encode_id (tree id, unsigned const_mask) {
+    if (const_mask)
+      id = build_int_cst (TREE_TYPE (id),
+			  extract_id (id) | (const_mask << ID_BITS));
+    return id;
+  }
+  static unsigned extract_id (tree id) {
+    return TREE_INT_CST_LOW (id) & ((uint32_t (1) << ID_BITS) - 1);
+  }
+  static unsigned extract_const_mask (tree id) {
+    return TREE_INT_CST_LOW (id) >> ID_BITS;
+  }
+#endif
+#if defined (INTVAL) // Ugh
+  static unsigned extract_id (rtx id) {
+    return INTVAL (id) & ((uint32_t (1) << ID_BITS) - 1);
+  }
+  static unsigned extract_const_mask (rtx id) {
+    return INTVAL (id) >> ID_BITS;
+  }
+#endif
 };
 
 class rvtt_arg_info

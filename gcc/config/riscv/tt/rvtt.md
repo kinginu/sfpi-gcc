@@ -155,6 +155,22 @@
 }
   [(set_attr "type" "const")])
 
+(define_expand "rvtt_synth_add2"
+  [(set (match_operand:SI 0 "register_operand")
+        (unspec:SI [
+	  (match_operand:SI 1 "register_operand") ;; synth result
+	  (match_operand:SI 2 "register_operand") ;; immediate 0
+          (match_operand:SI 3 "register_operand") ;; immediate 1
+	  ] 0))]
+  "TARGET_XTT_TENSIX"
+{
+  // expands to 2 adds
+  rtx tmp = gen_reg_rtx (SImode);
+  emit_insn (gen_addsi3 (tmp, operands[2], operands[3]));
+  emit_insn (gen_addsi3 (operands[0], operands[2], tmp));
+  DONE;
+})
+
 (define_expand "rvtt_lreg_pressure"
   [(unspec:SI [
      (match_operand:SI 0 "const_int_operand")]

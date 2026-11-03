@@ -777,7 +777,7 @@ Deferred::preprocess_muli_addi ()
 	{
 	  auto *loadi_call = match.calls[0];
 	  auto *loadi_insnd = rvtt_get_insn_data (loadi_call);
-	  if (auto id = TREE_INT_CST_LOW (gimple_call_arg (loadi_call, loadi_insnd->id_arg ())))
+	  if (auto id = rvtt_synth::extract_id (gimple_call_arg (loadi_call, loadi_insnd->id_arg ())))
 	    loadis.insert ({loadi_call, {id, match.combiner}});
 	}
     }
@@ -1046,7 +1046,7 @@ public:
 	    // If this is a dynamic constant, remember it
 	    auto *call = match.replace[match.combiner->pats_hwm - 1];
 	    auto *insnd = rvtt_get_insn_data (call);
-	    if (TREE_INT_CST_LOW (gimple_call_arg (call, insnd->id_arg ())))
+	    if (rvtt_synth::extract_id (gimple_call_arg (call, insnd->id_arg ())))
 	      deferred.record_muli_addi (call, insnd);
 	  }
 
