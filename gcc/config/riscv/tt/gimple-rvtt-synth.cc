@@ -121,26 +121,38 @@ split (function *fn)
 	  continue;
 
 	auto *call = as_a <gcall *> (*gsi);
-	tree immarg = gimple_call_arg (call, insnd->imm_arg ());
+	unsigned non_const_mask = 0;
+	if (unsigned ix = insnd->num_imms ())
+	  while (ix--)
+	    {
+	      tree immarg = gimple_call_arg (call, insnd->imm_arg ());
+	      if (TREE_CODE (immarg) != INTEGER_CST)
+		non_const_mask |= 1 << ix;
+	    }
+	else if (TREE_CODE (gimple_call_arg (call, insnd->imm_arg ())) != INTEGER_CST)
+	  non_const_mask = 1 << 0;
+
 	const char *msg = nullptr;
-	if (TREE_CODE (immarg) == INTEGER_CST)
+	if (non_const_mask == 0)
 	  {
 	    if (integer_zerop (gimple_call_arg (call, 0)))
 	      continue;
-	    msg = "Constant";
 	    gimple_call_set_arg (call, 0, null_pointer_node);
-	    if (insnd->has_var ())
+	    if (insnd->has_imms ())
 	      gimple_call_set_arg (call, insnd->var_arg (), integer_zero_node);
+	    msg = "Constant";
 	  }
-	else if (!insnd->has_var ())
+	else if (!insnd->has_imms ())
 	  msg = "Variable";
 	else if (!integer_zerop (gimple_call_arg (call, insnd->var_arg ())))
 	  msg = "User set";
 	else
 	  {
+	    tree immarg = gimple_call_arg (call, insnd->imm_arg ());
 	    tree synth_val = build_int_cst (unsigned_type_node, synth_id++);
 	    tree sum = build_var_synth (gsi, insnd, gimple_location (call),
 					immarg, synth_val);
+	    gcc_assert (non_const_mask == 1); // FIXME
 
 	    gimple_call_set_arg (call, insnd->var_arg (), sum);
 	    gimple_call_set_arg (call, insnd->id_arg (), synth_val);
@@ -357,7 +369,7 @@ cse (function *fn)
 	auto *insnd = rvtt_get_insn_data (*gsi);
 	if (!insnd)
 	  continue;
-	if (!insnd->has_var ())
+	if (!insnd->has_imms ())
 	  continue;
 	auto *call = as_a <gcall *> (*gsi);
 	tree var = gimple_call_arg (call, insnd->var_arg ());

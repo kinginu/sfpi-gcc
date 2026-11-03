@@ -85,7 +85,7 @@ emit_loadimm (gimple_stmt_iterator &gsi, location_t loc, int bits,
   tree lower = val;
   if (!needs_both)
     ;
-  else if (SSA_VAR_P (lower))
+  else if (TREE_CODE (lower) != INTEGER_CST)
     {
       lower = make_ssa_name (TREE_TYPE (lower));
       auto *lower_stmt = gimple_build_assign
@@ -125,7 +125,7 @@ emit_loadimm (gimple_stmt_iterator &gsi, location_t loc, int bits,
   if (needs_both)
     {
       tree shift = val;
-      if (SSA_VAR_P (shift))
+      if (TREE_CODE (shift) != INTEGER_CST)
 	{
 	  shift = make_ssa_name (TREE_TYPE (val));
 	  auto *shift_stmt = gimple_build_assign
@@ -173,51 +173,48 @@ emit_replacement (gimple_stmt_iterator &gsi, const rvtt_insn_data *insnd, gcall 
 static bool
 immvar_expand (gimple_stmt_iterator &gsi, const rvtt_insn_data *insnd, gcall *call)
 {
-  if (!insnd->has_var ())
+  if (!insnd->has_imms ())
     return false;
   tree imm = gimple_call_arg (call, insnd->imm_arg ());
-  tree addr = insnd->has_var () ? gimple_call_arg (call, 0) : nullptr;
-  tree mod = insnd->has_mod () ? gimple_call_arg (call, insnd->mod_arg ()) : nullptr;
-  switch (insnd->id)
-    {
-    default:
-      if (!insnd->is_expanded ())
-	break;
-      {
-	bool expand = SSA_VAR_P (imm);
-	auto info = insnd->ops[0];
-	bool is_signed = info.kind () == rvtt_insn_data::op_t::SIGNED;
-	if (!expand)
-	  {
-	    HOST_WIDE_INT i_imm = TREE_INT_CST_LOW (imm);
-	    HOST_WIDE_INT bound = (1u << info.bits ()) - 1;
-	    if (is_signed)
-	      {
-		bound >>= 1;
-		if (i_imm < ~bound)
-		  expand = true;
-	      }
-	    else if (i_imm < 0)
-	      expand = true;
-	    if (i_imm > bound)
-	      expand = true;
-	  }
-	if (expand)
-	  {
-	    tree tmp = emit_loadimm (gsi, gimple_location (call), is_signed ? -32 : 32, addr, imm, nullptr);
-	    return emit_replacement (gsi, insnd, call, insnd->get_vector (), tmp, mod);
-	  }
-      }
-      break;
+  tree addr = gimple_call_arg (call, 0);
 
-    case rvtt_insn_data::sfpxloadi:
-      {
-	int bits = TREE_INT_CST_LOW (gimple_call_arg (call, 4));
-	emit_loadimm (gsi, gimple_location (call),
-		      bits, addr, imm, gimple_call_lhs (call));
-	return true;
-      }
+  if (insnd->id == rvtt_insn_data::sfpxloadi)
+    {
+      int bits = TREE_INT_CST_LOW (gimple_call_arg (call, 4));
+      emit_loadimm (gsi, gimple_location (call),
+		    bits, addr, imm, gimple_call_lhs (call));
+      return true;
     }
+
+  if (!insnd->is_expanded ())
+    return false;
+
+  tree mod = insnd->has_mod () ? gimple_call_arg (call, insnd->mod_arg ()) : nullptr;
+  bool expand = TREE_CODE (imm) != INTEGER_CST;
+  auto info = insnd->ops[0];
+  bool is_signed = info.kind () == rvtt_insn_data::op_t::SIGNED;
+  if (!expand)
+    {
+      HOST_WIDE_INT i_imm = TREE_INT_CST_LOW (imm);
+      HOST_WIDE_INT bound = (1u << info.bits ()) - 1;
+      if (is_signed)
+	{
+	  bound >>= 1;
+	  if (i_imm < ~bound)
+	    expand = true;
+	}
+      else if (i_imm < 0)
+	expand = true;
+      if (i_imm > bound)
+	expand = true;
+    }
+
+  if (expand)
+    {
+      tree tmp = emit_loadimm (gsi, gimple_location (call), is_signed ? -32 : 32, addr, imm, nullptr);
+      return emit_replacement (gsi, insnd, call, insnd->get_vector (), tmp, mod);
+    }
+
   return false;
 }
 
@@ -228,13 +225,27 @@ immvar_gather (const rvtt_insn_data *insnd,
   if (!insnd->has_iptr ())
     return false;
 
-  tree imm = gimple_call_arg (call, insnd->imm_arg ());
-  if (SSA_VAR_P (imm))
+  unsigned num_imms = insnd->num_imms () ? insnd->num_imms () : 1;
+  unsigned non_const_mask = 0;
+  for (unsigned ix = num_imms; ix--; )
     {
-      if (loads && integer_zerop (gimple_call_arg (call, 0)))
-	error_at (gimple_location (call), "%qE immediate operand is not known at compile time",
-		  gimple_call_fndecl (call));
+      tree imm = gimple_call_arg (call, insnd->imm_arg () + ix);
+      if (TREE_CODE (imm) != INTEGER_CST)
+	{
+	  non_const_mask |= 1 << ix;
+	  if (loads && integer_zerop (gimple_call_arg (call, 0)))
+	    error_at (gimple_location (call), "%qE immediate operand %d is not known at compile time",
+		      gimple_call_fndecl (call), 1 + insnd->imm_arg () + ix);
+	}
+    }
 
+  if (non_const_mask != 0)
+    {
+      if (non_const_mask != (1 << num_imms) - 1)
+	{
+	  // FIXME: Check if some have become known
+	  gcc_unreachable ();
+	}
       return false;
     }
 
@@ -243,11 +254,11 @@ immvar_gather (const rvtt_insn_data *insnd,
     {
       if (dump_file)
 	{
-	  fprintf (dump_file, "Immediate is now known: ");
+	  fprintf (dump_file, "Immediates are now known: ");
 	  print_gimple_stmt (dump_file, call, 0);
 	}
       gimple_call_set_arg (call, 0, null_pointer_node);
-      if (insnd->has_var ())
+      if (insnd->has_imms ())
 	{
 	  gimple_call_set_arg (call, insnd->var_arg (), integer_zero_node);
 	  gimple_call_set_arg (call, insnd->id_arg (), integer_zero_node);

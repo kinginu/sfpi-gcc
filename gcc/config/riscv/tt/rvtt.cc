@@ -136,22 +136,40 @@ rvtt_insn_data::init ()
 
   if (has_iptr ())
     {
-      ops.set_argno (ix, argno);
-      gcc_checking_assert (TREE_CODE (TREE_VALUE (arg_types)) == INTEGER_TYPE);
-      arg_types = TREE_CHAIN (arg_types);
-      argno++;
-      if (!ops[ix].is_runtime ())
+      if (ops[ix].is_runtime ())
 	{
-	  flags = flags_t (flags | HAS_VAR);
+	  ops.set_argno (ix, argno);
 	  gcc_checking_assert (TREE_CODE (TREE_VALUE (arg_types)) == INTEGER_TYPE);
 	  arg_types = TREE_CHAIN (arg_types);
 	  argno++;
-
-	  gcc_checking_assert (TREE_CODE (TREE_VALUE (arg_types)) == INTEGER_TYPE);
-	  arg_types = TREE_CHAIN (arg_types);
-	  argno++;
+	  ix++;
 	}
-      ix++;
+      else
+	{
+	  unsigned num_imms = (flags >> IMM_NUM_SHIFT) & ((1 << IMM_NUM_BITS) - 1);
+	  if (!num_imms)
+	    {
+	      num_imms = 1;
+	      flags = flags_t (flags | (1 << IMM_NUM_SHIFT));
+	    }
+
+	  while (num_imms--)
+	    {
+	      gcc_checking_assert (ops[ix].is_int ());
+	      ops.set_argno (ix, argno);
+	      gcc_checking_assert (TREE_CODE (TREE_VALUE (arg_types)) == INTEGER_TYPE);
+	      arg_types = TREE_CHAIN (arg_types);
+	      argno++;
+	      ix++;
+	    }
+
+	  for (unsigned ix = 2; ix--;)
+	    {
+	      gcc_checking_assert (TREE_CODE (TREE_VALUE (arg_types)) == INTEGER_TYPE);
+	      arg_types = TREE_CHAIN (arg_types);
+	      argno++;
+	    }
+	}
     }
 
   // Remaining arguments must be integers
